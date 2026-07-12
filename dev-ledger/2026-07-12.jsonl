@@ -1,0 +1,1 @@
+{"data":{"files":"tests/","session":"2026-07-12"},"detail":"Mechanical migration to mythings.testing: shared FakeGh/ScriptedEngine/fake_fetch replace local copies; NPM/PyPI payload tables stay local (insertion-ordered fallback).","kind":"build","outcome":"success","tool":"claude-code","ts":"2026-07-12T10:05:26Z"}
