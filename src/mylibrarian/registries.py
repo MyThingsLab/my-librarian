@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -47,6 +48,11 @@ _STOPWORDS = frozenset(
     "to via with what why tool library".split()
 )
 
+# npm's search API rejects any `text` param over 64 chars (HTTP 400,
+# ERR_TEXT_LENGTH); keep the joined query under that regardless of how many
+# terms a verbose task title/body tokenizes into.
+_MAX_QUERY_LEN = 64
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -87,7 +93,14 @@ def build_query(title: str, body: str = "") -> str:
             continue
         seen.add(tok)
         terms.append(tok)
-    return " ".join(terms[:12])
+
+    query = ""
+    for term in terms[:12]:
+        candidate = f"{query} {term}".strip()
+        if len(candidate) > _MAX_QUERY_LEN:
+            break
+        query = candidate
+    return query
 
 
 def normalize_license(raw: str | None) -> str:
@@ -108,7 +121,13 @@ def search_npm(query: str, *, fetch: Fetcher = _http, limit: int = 10) -> list[C
     if not query:
         return []
     params = urllib.parse.urlencode({"text": query, "size": limit})
-    raw = fetch(f"{NPM_SEARCH_ENDPOINT}?{params}")
+    try:
+        raw = fetch(f"{NPM_SEARCH_ENDPOINT}?{params}")
+    except urllib.error.HTTPError:
+        # e.g. ERR_TEXT_LENGTH if a query still slips past build_query's cap
+        # (a caller passing a raw query directly) -- degrade like an empty
+        # result set rather than crashing the whole survey run.
+        return []
     payload = json.loads(raw)
     candidates: list[Candidate] = []
     for obj in payload.get("objects", []):
