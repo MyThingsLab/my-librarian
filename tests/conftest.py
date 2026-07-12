@@ -3,17 +3,23 @@ from __future__ import annotations
 import json
 
 import pytest
-from mythings.engine import EngineRequest, EngineResult
+
+# Shared fakes come from mythings.testing (plain imports; aliased fixture
+# re-export + getfixturevalue wrapper per core docs/CONVENTIONS.md).
+from mythings.testing import FakeGh, ScriptedEngine
+from mythings.testing import clean_git_env as _shared_clean_git_env  # noqa: F401
+from mythings.testing import fake_fetch as _fake_fetch
 
 from mylibrarian.registries import NPM_SEARCH_ENDPOINT, PYPI_JSON_ENDPOINT
 
+__all__ = ["ScriptedEngine"]
+
 
 @pytest.fixture(autouse=True)
-def _clean_git_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clean_git_env(request: pytest.FixtureRequest) -> None:
     # Consistency with the fleet's other test suites (harmless here — no git
     # subprocess is spawned by this tool, but keeps the fixture set uniform).
-    for var in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY"):
-        monkeypatch.delenv(var, raising=False)
+    request.getfixturevalue("_shared_clean_git_env")
 
 
 NPM_RESULTS = {
@@ -42,54 +48,26 @@ PYPI_MARKDOWN_IT_PY = {
 }
 
 
-_PYPI_PREFIX = "https://pypi.org/pypi/"
+# Insertion order matters: the stubbed package wins before the any-other-PyPI
+# fallback ("no metadata").
+fake_fetch = _fake_fetch(
+    {
+        NPM_SEARCH_ENDPOINT: NPM_RESULTS,
+        PYPI_JSON_ENDPOINT.format(name="markdown-it-py"): PYPI_MARKDOWN_IT_PY,
+        "https://pypi.org/pypi/": {"info": {}, "releases": {}},
+    }
+)
+
+empty_fetch = _fake_fetch(
+    {NPM_SEARCH_ENDPOINT: {"objects": []}},
+    default=json.dumps({"info": {}, "releases": {}}).encode(),
+)
 
 
-def fake_fetch(url: str, *, data: bytes | None = None, headers: dict | None = None) -> bytes:
-    if url.startswith(NPM_SEARCH_ENDPOINT):
-        return json.dumps(NPM_RESULTS).encode()
-    if url == PYPI_JSON_ENDPOINT.format(name="markdown-it-py"):
-        return json.dumps(PYPI_MARKDOWN_IT_PY).encode()
-    if url.startswith(_PYPI_PREFIX):
-        # Any other seed name the fixture didn't stub — no metadata.
-        return json.dumps({"info": {}, "releases": {}}).encode()
-    raise AssertionError(f"unexpected fetch url: {url}")
-
-
-def empty_fetch(url: str, *, data: bytes | None = None, headers: dict | None = None) -> bytes:
-    if url.startswith(NPM_SEARCH_ENDPOINT):
-        return json.dumps({"objects": []}).encode()
-    return json.dumps({"info": {}, "releases": {}}).encode()
-
-
-class ScriptedEngine:
-    def __init__(self, reply: str) -> None:
-        self.reply = reply
-        self.calls: list[EngineRequest] = []
-
-    def run(self, request: EngineRequest) -> EngineResult:
-        self.calls.append(request)
-        return EngineResult(text=self.reply)
-
-
-class SpyEngine:
-    def __init__(self) -> None:
-        self.calls: list[EngineRequest] = []
-
-    def run(self, request: EngineRequest) -> EngineResult:
-        self.calls.append(request)
-        return EngineResult(text="")
-
-
-class FakeRunner:
-    def __init__(self, comment_url: str = "https://github.com/owner/name/issues/1#comment") -> None:
-        self.calls: list[list[str]] = []
-        self._comment_url = comment_url
-
-    def __call__(self, argv: list[str]) -> str:
-        self.calls.append(argv)
-        if argv[:2] == ["issue", "comment"]:
-            return self._comment_url + "\n"
-        if argv[:2] == ["search", "repos"]:
-            return json.dumps([])
-        raise AssertionError(f"unexpected gh call: {argv}")
+def fake_gh(comment_url: str = "https://github.com/owner/name/issues/1#comment") -> FakeGh:
+    return FakeGh(
+        {
+            ("issue", "comment"): comment_url + "\n",
+            ("search", "repos"): json.dumps([]),
+        }
+    )

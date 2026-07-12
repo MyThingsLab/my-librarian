@@ -6,7 +6,7 @@ from pathlib import Path
 from mythings.ledger import Ledger
 from mythings.policy import ALLOW, Action, PolicyResult
 
-from conftest import FakeRunner, ScriptedEngine, SpyEngine, empty_fetch, fake_fetch
+from conftest import ScriptedEngine, empty_fetch, fake_fetch, fake_gh
 from mylibrarian.librarian import Librarian
 
 
@@ -17,9 +17,9 @@ class _AllowPolicy:
 
 def test_survey_skips_when_no_candidates(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    engine = SpyEngine()
+    engine = ScriptedEngine()
     librarian = Librarian(
-        ledger=ledger, repo="owner/name", runner=FakeRunner(), engine=engine,
+        ledger=ledger, repo="owner/name", runner=fake_gh(), engine=engine,
         policy=_AllowPolicy(), fetch=empty_fetch,
     )
     result = librarian.survey(1, "some task with no seed match")
@@ -43,7 +43,7 @@ def test_survey_success_records_ledger_and_recommendation(tmp_path: Path) -> Non
         }
     )
     librarian = Librarian(
-        ledger=ledger, repo="owner/name", runner=FakeRunner(),
+        ledger=ledger, repo="owner/name", runner=fake_gh(),
         engine=ScriptedEngine(reply), policy=_AllowPolicy(), fetch=fake_fetch,
     )
     result = librarian.survey(1, "convert markdown to html")
@@ -57,7 +57,7 @@ def test_survey_success_records_ledger_and_recommendation(tmp_path: Path) -> Non
 
 def test_survey_comment_posts_via_runner(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     librarian = Librarian(
         ledger=ledger, repo="owner/name", runner=runner, engine=ScriptedEngine("{}"),
         policy=_AllowPolicy(), fetch=fake_fetch,
@@ -70,7 +70,7 @@ def test_survey_comment_posts_via_runner(tmp_path: Path) -> None:
 def test_survey_no_comment_without_repo(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
     librarian = Librarian(
-        ledger=ledger, repo=None, runner=FakeRunner(), engine=ScriptedEngine("{}"),
+        ledger=ledger, repo=None, runner=fake_gh(), engine=ScriptedEngine("{}"),
         policy=_AllowPolicy(), fetch=fake_fetch,
     )
     result = librarian.survey(1, "convert markdown to html", comment=True)
@@ -79,7 +79,7 @@ def test_survey_no_comment_without_repo(tmp_path: Path) -> None:
 
 def test_survey_github_registry_uses_runner(tmp_path: Path) -> None:
     ledger = Ledger(tmp_path / "ledger.jsonl")
-    runner = FakeRunner()
+    runner = fake_gh()
     librarian = Librarian(
         ledger=ledger, repo="owner/name", runner=runner, engine=ScriptedEngine("{}"),
         policy=_AllowPolicy(), fetch=fake_fetch, registries=("pypi", "npm", "github"),
