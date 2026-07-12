@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 
 from conftest import empty_fetch, fake_fetch
 from mylibrarian.registries import (
+    NPM_SEARCH_ENDPOINT,
     build_query,
     is_copyleft,
     normalize_license,
@@ -21,6 +23,27 @@ def test_build_query_drops_stopwords_and_dedupes() -> None:
     assert "convert" not in terms  # stopword
     assert "how" not in terms  # stopword
     assert terms.count("markdown") == 1  # deduped across title + body
+
+
+def test_build_query_caps_at_npm_text_length() -> None:
+    # A verbose but realistic task description tokenizes past npm's 64-char
+    # `text` param limit; build_query must never hand back more than that.
+    title = "lightweight CSS-only animation library"
+    body = (
+        "usable by copy-pasting inline CSS into a single self-contained "
+        "HTML file, no JavaScript, no build step"
+    )
+    q = build_query(title, body)
+    assert len(q) <= 64
+    assert q  # still non-empty -- some terms fit
+
+
+def test_search_npm_degrades_on_http_error() -> None:
+    def raising_fetch(url: str, *, data: bytes | None = None, headers: dict | None = None) -> bytes:
+        assert url.startswith(NPM_SEARCH_ENDPOINT)
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
+
+    assert search_npm("some query", fetch=raising_fetch) == []
 
 
 def test_normalize_license() -> None:
