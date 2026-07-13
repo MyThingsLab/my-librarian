@@ -24,6 +24,7 @@ PYPI_SEED: dict[str, tuple[str, ...]] = {
     "html": ("markdown-it-py", "beautifulsoup4", "lxml"),
     "pdf": ("pypandoc", "reportlab", "weasyprint"),
     "typeset": ("pypandoc",),
+    "typst": ("typst",),
     "yaml": ("PyYAML", "ruamel.yaml"),
     "json": ("orjson",),
     "csv": ("pandas",),
@@ -34,6 +35,20 @@ PYPI_SEED: dict[str, tuple[str, ...]] = {
     "template": ("jinja2",),
     "config": ("pydantic",),
     "date": ("python-dateutil", "pendulum"),
+    "ocr": ("pytesseract", "easyocr"),
+    "latex": ("pylatex", "pypandoc"),
+    "equation": ("pylatex",),
+    "embedding": ("sentence-transformers", "fastembed"),
+    "embeddings": ("sentence-transformers", "fastembed"),
+    "vector": ("faiss-cpu",),
+    "cluster": ("scikit-learn",),
+    "clustering": ("scikit-learn",),
+    "scrape": ("beautifulsoup4", "httpx"),
+    "scraping": ("beautifulsoup4", "httpx"),
+    "image": ("pillow",),
+    "table": ("pdfplumber", "pandas"),
+    "epub": ("ebooklib",),
+    "ebook": ("ebooklib",),
 }
 
 _PERMISSIVE_LICENSES = frozenset(
@@ -197,16 +212,34 @@ def search_pypi(query: str, *, fetch: Fetcher = _http, limit: int = 10) -> list[
 def search_github(query: str, *, runner: Runner, limit: int = 10) -> list[Candidate]:
     if not query:
         return []
-    argv = [
-        "search",
-        "repos",
-        query,
-        "--limit",
-        str(limit),
-        "--json",
-        "fullName,description,url,stargazersCount,updatedAt",
-    ]
-    rows = json.loads(runner(argv))
+    # Unlike npm's fuzzy relevance search, GitHub's repo search ANDs every
+    # term in the query -- build_query's verbose, stopword-trimmed task
+    # queries (routinely 5-12 terms) reliably match zero repos even when
+    # obviously relevant ones exist (verified: "typst presentation" finds
+    # touying-typ/touying; "render typst presentation slide decks structured
+    # outline" finds nothing). Retry with a shrinking prefix of the query's
+    # leading (highest-signal, per build_query's first-appearance ordering)
+    # terms until something matches, down to a floor of 2 terms.
+    terms = query.split()
+    lengths: list[int] = []
+    for n in (len(terms), 3, 2):
+        n = min(n, len(terms))
+        if n >= 1 and n not in lengths:
+            lengths.append(n)
+    rows: list[dict] = []
+    for n in lengths:
+        argv = [
+            "search",
+            "repos",
+            " ".join(terms[:n]),
+            "--limit",
+            str(limit),
+            "--json",
+            "fullName,description,url,stargazersCount,updatedAt",
+        ]
+        rows = json.loads(runner(argv))
+        if rows:
+            break
     candidates: list[Candidate] = []
     for row in rows:
         stars = row.get("stargazersCount") or 0
